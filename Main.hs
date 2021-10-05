@@ -31,7 +31,7 @@ data Transition = Transition { state1 :: String,
                                probability :: Fraction,
                                state2 :: String }
 instance Show Transition where
-    show (Transition s1 p s2) = show s1 ++ " -( " ++ show p ++ " )- " ++ show s2
+    show (Transition s1 p s2) = "[" ++ s1 ++ "] -( " ++ show p ++ " )-> [" ++ s2 ++ "]"
 
 newtype MarkovChain = MarkovChain [Transition]
 
