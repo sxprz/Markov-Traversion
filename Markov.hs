@@ -12,6 +12,11 @@ instance Show Fraction where
     show (Int i)        = show i
     show Undefined      = "Undefined"
 
+isNegative :: Fraction -> Bool
+isNegative (Fraction a b) = a < 0 || b < 0
+isNegative (Int a)        = a < 0
+isNegative _              = False
+
 -- Basic arithmetic for fractions
 -- Addition of fractions
 add :: Fraction -> Fraction -> Fraction
@@ -127,31 +132,57 @@ findTransitionAndRetProb (MarkovChain ts _) a b = if null found then Int 0 else 
 findTransitions :: MarkovChain -> String -> [Transition]
 findTransitions (MarkovChain ts _) a = [t | t@(Transition a' _ _) <- ts, a' == a]
 
-data Step = Step String String deriving Eq
+data Step = Step String String | Empty deriving Eq
 
 instance Show Step where
-    show (Step s s') = "f_" ++ s ++ "," ++ s'
+    show (Step s s')
+        | s == s'   = "f_" ++ s
+        | otherwise = "f_" ++ s ++ "," ++ s'
+    show _           = ""
 
-data EquationSys = Step :=: [Step]
+data EquationSys = EquationSysElem :=: [EquationSysElem] --Step :=: [Step]
+data EquationSysElem = Elem Fraction Step
+
+instance Show EquationSysElem where
+    show (Elem f Empty)      = if isNegative f then "(" ++ show f ++ ")" else show f
+    show (Elem (Int (-1)) s) = "-" ++ show s
+    show (Elem (Int (1)) s)  = show s
+    show (Elem f s)          = if isNegative f then "(" ++ str ++ ")" else str
+        where str = show f ++ "*" ++ show s
+    
+instance Eq EquationSysElem where
+    (==) (Elem f s) (Elem g s') = s == s'
+    (/=) e e'                   = not $ (==) e e'
 
 instance Show EquationSys where
-    show (s :=: ss) = show s ++ " = " ++ prettyPrintEquation ss
+    show (e :=: es) = show e ++ " = " ++ prettyPrintEquation es
 
-prettyPrintEquation :: [Step] -> String
+prettyPrintEquation :: [EquationSysElem] -> String
 prettyPrintEquation []     = []
-prettyPrintEquation [s]    = show s
-prettyPrintEquation (s:ss) = (show s++"+") ++ prettyPrintEquation ss 
+prettyPrintEquation [e]    = show e
+prettyPrintEquation (e:es) = (show e ++ "+") ++ prettyPrintEquation es
 
 buildEquationSys :: MarkovChain -> String -> String -> EquationSys
-buildEquationSys m a b = Step a b :=: (if absorpCond then [Step "absorbed" b] else eliminateAllAbsorptions m (f m a b 0))
-    where absorpCond = checkAbsorption m a
+buildEquationSys m@(MarkovChain _ ss) a b = Elem (Int 1) (Step a b) :=:
+    (Elem (findTransitionAndRetProb m a b) Empty : [Elem (findTransitionAndRetProb m k b) (Step k b) | k <- ss, k /= b && not (checkAbsorption m k)] {-convertStepsToElem m (f m a b)-})
 
-f :: MarkovChain -> String -> String -> Int -> [Step]
-f m@(MarkovChain ts ss) a b 1 = [Step k b | k <- ss, k /= b]
-f m@(MarkovChain ts ss) a b depth = concat [f m k b (depth+1) | k <- ss, k /= b && not (checkAbsorption m k)]
+convertStepsToElem :: MarkovChain -> [(Step, [Step])] -> [EquationSysElem]
+convertStepsToElem m stepsTup = [Elem (findTransitionAndRetProb m a b) s | (s@(Step a b), _) <- stepsTup]
 
-eliminateAllAbsorptions :: MarkovChain -> [Step] -> [Step]
-eliminateAllAbsorptions m steps = [step | step@(Step a b) <- steps, not $ checkAbsorption m a]
+f :: MarkovChain -> String -> String -> [(Step, [Step])]
+f m@(MarkovChain ts ss) a b = [f' m k b | k <- ss, k /= b && not (checkAbsorption m k)]
+
+f' :: MarkovChain -> String -> String -> (Step, [Step])
+f' m@(MarkovChain ts ss) a b = (Step a b, [Step k b | k <- ss, k /= b && not (checkAbsorption m k)])
+
+findEquationSysForFuncs :: MarkovChain -> EquationSys -> [(Step, EquationSys)]
+findEquationSysForFuncs m (_ :=: r) = [(s, buildEquationSys m a b) | (Elem _ s@(Step a b)) <- r]
+
+solveEquationSys :: EquationSys -> Fraction
+solveEquationSys sys = undefined
+
+replaceVariableElemWithFixed :: EquationSys -> EquationSys
+replaceVariableElemWithFixed sys = undefined
 
 -- Probability of arriving at a certain state
 dstProbability :: MarkovChain -> String -> String -> Fraction
@@ -160,13 +191,6 @@ dstProbability m a b = undefined
 -- Probability of returning to the same state
 retProbability :: MarkovChain -> String -> Fraction
 retProbability m a = undefined
-
-{-f :: MarkovChain -> String -> String -> [Fraction] -> Fraction
-f m@(MarkovChain ts ss) a b
-    | a == b              = Int 1
-    | checkAbsorption m a = Int 0
-    | otherwise           = add (findTransitionAndRetProb m a a)
-                            $ foldl add (Int 0) [mul (findTransitionAndRetProb m b k) (f m k b) | k <- ss, k /= b]-}
 
 -- Transition time in number of states from state a to b
 transitionTime :: MarkovChain -> String -> String -> Fraction
@@ -179,4 +203,6 @@ returnTime m a = undefined
 main :: IO ()
 main =  do
         let m = create' [("0","1",1,2),("1","0",1,2),("0","2",1,2),("2","0",1,2),("1","3",1,2),("2","3",1,2),("3","3",1,1)]
-        print (buildEquationSys m "1" "0")
+        let sys = buildEquationSys m "0" "0"
+        print sys
+        print $ findEquationSysForFuncs m sys
