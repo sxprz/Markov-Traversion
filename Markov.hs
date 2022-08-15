@@ -170,10 +170,6 @@ fstStateInLabel (Label _ a _ _) = a
 sndStateInLabel :: Label -> String
 sndStateInLabel (Label _ _ b _) = b
 
-termTypeMulToTuple :: EquationTerm -> (EquationTerm, EquationTerm)
-termTypeMulToTuple (Mul t t') = (t, t')
-termTypeMulToTuple t = (t, (Imm (Int 1)))
-
 -- Pretty print equations to be more human-readable
 prettyPrintEquation :: EquationTerms -> String
 prettyPrintEquation []     = []
@@ -189,8 +185,6 @@ instance Show EquationTerm where
     show (Mul t t') = show t ++ "*" ++ show t'
     show (Term l []) = show l
     show (Term l ts) = "(" ++ prettyPrintEquation ts ++ ")"
-    --show (Term _ []) = if isNegative f then "(" ++ show f ++ ")" else show f
-    --show (Term _ ts) = if isNegative f then "(" ++ show f ++ ")*(" ++ prettyPrintEquation ts ++ ")" else show f ++ "*(" ++ prettyPrintEquation ts ++ ")"
 
 instance Show Equation where
     show (t :=: ts) = show t ++ " = " ++ prettyPrintEquation ts
@@ -213,13 +207,7 @@ defineRetProbSum (MarkovChain _ ss) b = ((Term (Label "h" b b True) []) :=: ((Im
 
 -- Cancel out zero probability summands
 removeZeroProbs :: MarkovChain -> Equation -> Equation
-removeZeroProbs m (t :=: ts) = (t :=: (removeZeroProbs' m ts))
-    --where ts' = [t | t <- ts, let ((Term l _), t2) = termTypeMulToTuple t, let (a,b) = (fstStateInLabel l, sndStateInLabel l), not $ isZero (findTransitionAndRetProb m a b)]
-
-removeZeroProbs' :: MarkovChain -> EquationTerms -> EquationTerms
-removeZeroProbs' m [] = []
-removeZeroProbs' m [t] = []
-removeZeroProbs' m (t:ts) = []
+removeZeroProbs m (t :=: ts) = (t :=: [t | t <- ts, not $ findProbForTermAndTestIfZero m t])
 
 -- Probability of arriving at a certain state
 dstProbability :: MarkovChain -> String -> String -> Fraction
