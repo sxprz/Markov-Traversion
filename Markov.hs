@@ -189,10 +189,6 @@ instance Show EquationTerm where
 instance Show Equation where
     show (t :=: ts) = show t ++ " = " ++ prettyPrintEquation ts
 
--- Check if an equation term is defined, either by a defined value, inserted term or both
---checkIfAllDefined :: EquationTerms -> Bool
---checkIfAllDefined ts = and [(isDefined v || not (null ts')) | (Term _ v ts') <- ts]
-
 findProbForTerm :: MarkovChain -> EquationTerm -> Fraction
 findProbForTerm m (Imm f) = f
 findProbForTerm m (Term l _) = findTransitionAndRetProb m (fstStateInLabel l) (sndStateInLabel l)
@@ -201,29 +197,52 @@ findProbForTerm m (Mul t _) = findProbForTerm m t
 findProbForTermAndTestIfZero :: MarkovChain -> EquationTerm -> Bool
 findProbForTermAndTestIfZero m t = isZero $ findProbForTerm m t
 
--- Define general form of the return probability sum where b has to be in the state set of the markov chain
+replaceProbForTerm :: MarkovChain -> EquationTerm -> EquationTerm
+replaceProbForTerm m i@(Imm f) = i
+replaceProbForTerm m t@(Term _ _) = let p = findProbForTerm m t in (Imm p)
+replaceProbForTerm m (Mul t t') = let p = findProbForTerm m t in (Mul (Imm p) t')
+
+-- Define general form of the destination probability where a and b have to be in the state set of the Markov Chain
+defineDstProbSum :: MarkovChain -> String -> String -> Equation
+defineDstProbSum (MarkovChain _ ss) a b = ((Term (Label "f" a b False) []) :=: ((Term (Label "p" a b False) []) : [(Mul (Term (Label "p" a k False) []) (Term (Label "f" k b False) [])) | k <- ss, k /= b]))
+
+-- Define general form of the return probability sum where b has to be in the state set of the Markov Chain
 defineRetProbSum :: MarkovChain -> String -> Equation
-defineRetProbSum (MarkovChain _ ss) b = ((Term (Label "h" b b True) []) :=: ((Imm (Int 1)) : [(Mul (Term (Label "p" b k False) []) (Term (Label "h" k b False) [])) | k <- ss, k /= b]))
+defineRetProbSum (MarkovChain _ ss) b = ((Term (Label "f" b b True) []) :=: ((Term (Label "p" b b True) []) : [(Mul (Term (Label "p" b k False) []) (Term (Label "f" k b False) [])) | k <- ss, k /= b]))
+
+-- Define general form of the destination time where a and b have to be in the state set of the Markov Chain
+defineTransitTimeSum :: MarkovChain -> String -> String -> Equation
+defineTransitTimeSum (MarkovChain _ ss) a b = ((Term (Label "h" a b False) []) :=: ((Imm (Int 1)) : [(Mul (Term (Label "p" a k False) []) (Term (Label "h" k b False) [])) | k <- ss, k /= b]))
+
+-- Define general form of the return time sum where b has to be in the state set of the Markov Chain
+defineRetTimeSum :: MarkovChain -> String -> Equation
+defineRetTimeSum (MarkovChain _ ss) b = ((Term (Label "h" b b True) []) :=: ((Imm (Int 1)) : [(Mul (Term (Label "p" b k False) []) (Term (Label "h" k b False) [])) | k <- ss, k /= b]))
 
 -- Cancel out zero probability summands
 removeZeroProbs :: MarkovChain -> Equation -> Equation
 removeZeroProbs m (t :=: ts) = (t :=: [t | t <- ts, not $ findProbForTermAndTestIfZero m t])
 
+-- Replace all placeholder probabilities with actual values from the Markov Chain
+insertProbs :: MarkovChain -> Equation -> Equation
+insertProbs m (t :=: ts) = (t :=: [replaceProbForTerm m t | t <- ts])
+
 -- Probability of arriving at a certain state
 dstProbability :: MarkovChain -> String -> String -> Fraction
 dstProbability m a b = undefined
+    where preparedEquation = insertProbs m $ removeZeroProbs m $ defineDstProbSum m a b
 
 -- Probability of returning to the same state
 retProbability :: MarkovChain -> String -> Fraction
-retProbability m a = undefined
+retProbability m b = undefined
+    where preparedEquation = insertProbs m $ removeZeroProbs m $ defineRetProbSum m b
 
 -- Transition time in number of states from state a to b
 transitionTime :: MarkovChain -> String -> String -> Fraction
 transitionTime m a b = undefined
 
--- Return time in number of states from state a to a
+-- Return time in number of states from a state to itself 
 returnTime :: MarkovChain -> String -> Fraction
-returnTime m a = undefined
+returnTime m b = undefined
 
 -- For debug purposes
 --main :: IO ()
