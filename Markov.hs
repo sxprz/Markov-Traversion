@@ -1,4 +1,4 @@
-module Markov (main, Markov.add, Markov.sub, Markov.mul, Markov.div, Transition, create, addTransition) where
+module Markov (Markov.add, Markov.sub, Markov.mul, Markov.div, Transition, create, addTransition) where
 
 import Data.Maybe(fromJust)
 import Data.List(nub)
@@ -16,6 +16,15 @@ isNegative :: Fraction -> Bool
 isNegative (Fraction a b) = a < 0 || b < 0
 isNegative (Int a)        = a < 0
 isNegative _              = False
+
+isDefined :: Fraction -> Bool
+isDefined Undefined = False
+isDefined _ = True
+
+isZero :: Fraction -> Bool
+isZero (Int 0) = True
+isZero (Fraction 0 j) = j /= 0
+isZero _ = False
 
 -- Basic arithmetic for fractions
 -- Addition of fractions
@@ -41,8 +50,8 @@ mul :: Fraction -> Fraction -> Fraction
 mul (Fraction 1 b) (Fraction c 1) = Fraction c b
 mul (Fraction a 1) (Fraction 1 d) = Fraction a d
 mul (Fraction a b) (Fraction c d)
-    | gcd_ad > 1 = simplify $ mul (Fraction (Prelude.div a gcd_ad) b) (Fraction c (Prelude.div d gcd_ad))
-    | gcd_bc > 1 = simplify $ mul (Fraction a (Prelude.div b gcd_bc)) (Fraction (Prelude.div c gcd_bc) d)
+    | gcd_ad > 1 = simplify $ Markov.mul (Fraction (Prelude.div a gcd_ad) b) (Fraction c (Prelude.div d gcd_ad))
+    | gcd_bc > 1 = simplify $ Markov.mul (Fraction a (Prelude.div b gcd_bc)) (Fraction (Prelude.div c gcd_bc) d)
     | otherwise = Fraction (a*c) (b*d)
     where gcd_ad = gcd a d
           gcd_bc = gcd b c
@@ -53,9 +62,9 @@ mul _ _                           = Undefined
 
 -- Division of fractions
 div :: Fraction -> Fraction -> Fraction
-div f@(Fraction a b) (Fraction c d) = mul f (Fraction d c)
+div f@(Fraction a b) (Fraction c d) = Markov.mul f (Fraction d c)
 div (Int i) f@(Fraction _ _)        = Markov.div (Fraction i 1) f
-div f@(Fraction _ _) (Int i)        = mul f (Fraction 1 i)
+div f@(Fraction _ _) (Int i)        = Markov.mul f (Fraction 1 i)
 div (Int i) (Int j)                 = Fraction i j
 div _ _                             = Undefined
 
@@ -72,6 +81,7 @@ simplify f@(Fraction a b)
     | otherwise    = f
 simplify _         = Undefined
 
+--------------------------------------------------------------
 -- Transition data type decoded in a start state transitioning to another state with a certain probability
 data Transition = Transition { state1 :: String,
                                probability :: Fraction,
@@ -94,10 +104,10 @@ cmpStates :: String -> String -> Transition -> Bool
 cmpStates a b (Transition c _ d) = a == c && b == d
 
 cmpStatesAndRetProb :: String -> String -> Transition -> Fraction
-cmpStatesAndRetProb a b (Transition c p d) = if a == c && b == d then p else Int 0
+cmpStatesAndRetProb a b t@(Transition _ p _) = if (cmpStates a b t) then p else Int 0
 
 checkAbsorption :: MarkovChain -> String -> Bool
-checkAbsorption m a = let ts = findTransitions m a in length ts == 1 && cmpStates a a(head ts)
+checkAbsorption m a = let ts = findTransitions m a in length ts == 1 && cmpStates a a (head ts)
 
 -- MarkovChain data type consisting of a list of transitions and a list of all states
 data MarkovChain = MarkovChain [Transition] [String]
@@ -132,57 +142,84 @@ findTransitionAndRetProb (MarkovChain ts _) a b = if null found then Int 0 else 
 findTransitions :: MarkovChain -> String -> [Transition]
 findTransitions (MarkovChain ts _) a = [t | t@(Transition a' _ _) <- ts, a' == a]
 
-data Step = Step String String | Empty deriving Eq
+convertCharToIndex :: Char -> Char
+convertCharToIndex '0' = '₀'
+convertCharToIndex '1' = '₁'
+convertCharToIndex '2' = '₂'
+convertCharToIndex '3' = '₃'
+convertCharToIndex '4' = '₄'
+convertCharToIndex '5' = '₅'
+convertCharToIndex '6' = '₆'
+convertCharToIndex '7' = '₇'
+convertCharToIndex '8' = '₈'
+convertCharToIndex '9' = '₉'
+convertCharToIndex c = c
 
-instance Show Step where
-    show (Step s s')
-        | s == s'   = "f_" ++ s
-        | otherwise = "f_" ++ s ++ "," ++ s'
-    show _           = ""
+convertStringToIndex :: String -> String
+convertStringToIndex s = [convertCharToIndex c | c <- s]
 
-data EquationSys = EquationSysElem :=: [EquationSysElem] --Step :=: [Step]
-data EquationSysElem = Elem Fraction Step
+data Label = Label { name :: String, stateA :: String, stateB :: String, isFstStateNameOpt :: Bool }
+data EquationTerm = Imm Fraction | Term { label :: Label, equations :: EquationTerms } | Mul EquationTerm EquationTerm
+type EquationTerms = [EquationTerm]
+data Equation = EquationTerm :=: EquationTerms
+type EquationSys = [Equation]
 
-instance Show EquationSysElem where
-    show (Elem f Empty)      = if isNegative f then "(" ++ show f ++ ")" else show f
-    show (Elem (Int (-1)) s) = "-" ++ show s
-    show (Elem (Int (1)) s)  = show s
-    show (Elem f s)          = if isNegative f then "(" ++ str ++ ")" else str
-        where str = show f ++ "*" ++ show s
-    
-instance Eq EquationSysElem where
-    (==) (Elem f s) (Elem g s') = s == s'
-    (/=) e e'                   = not $ (==) e e'
+fstStateInLabel :: Label -> String
+fstStateInLabel (Label _ a _ _) = a
 
-instance Show EquationSys where
-    show (e :=: es) = show e ++ " = " ++ prettyPrintEquation es
+sndStateInLabel :: Label -> String
+sndStateInLabel (Label _ _ b _) = b
 
-prettyPrintEquation :: [EquationSysElem] -> String
+termTypeMulToTuple :: EquationTerm -> (EquationTerm, EquationTerm)
+termTypeMulToTuple (Mul t t') = (t, t')
+termTypeMulToTuple t = (t, (Imm (Int 1)))
+
+-- Pretty print equations to be more human-readable
+prettyPrintEquation :: EquationTerms -> String
 prettyPrintEquation []     = []
 prettyPrintEquation [e]    = show e
-prettyPrintEquation (e:es) = (show e ++ "+") ++ prettyPrintEquation es
+prettyPrintEquation (e:es) = (show e ++ " + ") ++ prettyPrintEquation es
 
-buildEquationSys :: MarkovChain -> String -> String -> EquationSys
-buildEquationSys m@(MarkovChain _ ss) a b = Elem (Int 1) (Step a b) :=:
-    (Elem (findTransitionAndRetProb m a b) Empty : [Elem (findTransitionAndRetProb m k b) (Step k b) | k <- ss, k /= b && not (checkAbsorption m k)] {-convertStepsToElem m (f m a b)-})
+-- TODO: Use unicode subscripts for a & b... Doesn't work in console output, yet
+instance Show Label where
+    show (Label n a b o) = n ++ "_" ++ (if o then "" else a) ++ b
 
-convertStepsToElem :: MarkovChain -> [(Step, [Step])] -> [EquationSysElem]
-convertStepsToElem m stepsTup = [Elem (findTransitionAndRetProb m a b) s | (s@(Step a b), _) <- stepsTup]
+instance Show EquationTerm where
+    show (Imm f) = show f
+    show (Mul t t') = show t ++ "*" ++ show t'
+    show (Term l []) = show l
+    show (Term l ts) = "(" ++ prettyPrintEquation ts ++ ")"
+    --show (Term _ []) = if isNegative f then "(" ++ show f ++ ")" else show f
+    --show (Term _ ts) = if isNegative f then "(" ++ show f ++ ")*(" ++ prettyPrintEquation ts ++ ")" else show f ++ "*(" ++ prettyPrintEquation ts ++ ")"
 
-f :: MarkovChain -> String -> String -> [(Step, [Step])]
-f m@(MarkovChain ts ss) a b = [f' m k b | k <- ss, k /= b && not (checkAbsorption m k)]
+instance Show Equation where
+    show (t :=: ts) = show t ++ " = " ++ prettyPrintEquation ts
 
-f' :: MarkovChain -> String -> String -> (Step, [Step])
-f' m@(MarkovChain ts ss) a b = (Step a b, [Step k b | k <- ss, k /= b && not (checkAbsorption m k)])
+-- Check if an equation term is defined, either by a defined value, inserted term or both
+--checkIfAllDefined :: EquationTerms -> Bool
+--checkIfAllDefined ts = and [(isDefined v || not (null ts')) | (Term _ v ts') <- ts]
 
-findEquationSysForFuncs :: MarkovChain -> EquationSys -> [(Step, EquationSys)]
-findEquationSysForFuncs m (_ :=: r) = [(s, buildEquationSys m a b) | (Elem _ s@(Step a b)) <- r]
+findProbForTerm :: MarkovChain -> EquationTerm -> Fraction
+findProbForTerm m (Imm f) = f
+findProbForTerm m (Term l _) = findTransitionAndRetProb m (fstStateInLabel l) (sndStateInLabel l)
+findProbForTerm m (Mul t _) = findProbForTerm m t
 
-solveEquationSys :: EquationSys -> Fraction
-solveEquationSys sys = undefined
+findProbForTermAndTestIfZero :: MarkovChain -> EquationTerm -> Bool
+findProbForTermAndTestIfZero m t = isZero $ findProbForTerm m t
 
-replaceVariableElemWithFixed :: EquationSys -> EquationSys
-replaceVariableElemWithFixed sys = undefined
+-- Define general form of the return probability sum where b has to be in the state set of the markov chain
+defineRetProbSum :: MarkovChain -> String -> Equation
+defineRetProbSum (MarkovChain _ ss) b = ((Term (Label "h" b b True) []) :=: ((Imm (Int 1)) : [(Mul (Term (Label "p" b k False) []) (Term (Label "h" k b False) [])) | k <- ss, k /= b]))
+
+-- Cancel out zero probability summands
+removeZeroProbs :: MarkovChain -> Equation -> Equation
+removeZeroProbs m (t :=: ts) = (t :=: (removeZeroProbs' m ts))
+    --where ts' = [t | t <- ts, let ((Term l _), t2) = termTypeMulToTuple t, let (a,b) = (fstStateInLabel l, sndStateInLabel l), not $ isZero (findTransitionAndRetProb m a b)]
+
+removeZeroProbs' :: MarkovChain -> EquationTerms -> EquationTerms
+removeZeroProbs' m [] = []
+removeZeroProbs' m [t] = []
+removeZeroProbs' m (t:ts) = []
 
 -- Probability of arriving at a certain state
 dstProbability :: MarkovChain -> String -> String -> Fraction
@@ -200,9 +237,10 @@ transitionTime m a b = undefined
 returnTime :: MarkovChain -> String -> Fraction
 returnTime m a = undefined
 
-main :: IO ()
-main =  do
-        let m = create' [("0","1",1,2),("1","0",1,2),("0","2",1,2),("2","0",1,2),("1","3",1,2),("2","3",1,2),("3","3",1,1)]
-        let sys = buildEquationSys m "0" "0"
-        print sys
-        print $ findEquationSysForFuncs m sys
+-- For debug purposes
+--main :: IO ()
+--main = do
+        --let m = create' [("0","1",1,2),("1","0",1,2),("0","2",1,2),("2","0",1,2),("1","3",1,2),("2","3",1,2),("3","3",1,1)]
+        --let sys = buildEquationSys m "0" "0"
+        --print sys
+        --print $ findEquationSysForFuncs m sys
