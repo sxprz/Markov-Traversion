@@ -220,11 +220,11 @@ defineRetTimeSum (MarkovChain _ ss) b = ((Term (Label "h" b b True) []) :=: ((Im
 
 -- Cancel out zero probability summands
 removeZeroProbs :: MarkovChain -> Equation -> Equation
-removeZeroProbs m (t :=: ts) = (t :=: [t | t <- ts, not $ findProbForTermAndTestIfZero m t])
+removeZeroProbs m (t :=: ts) = (t :=: [t' | t' <- ts, not $ findProbForTermAndTestIfZero m t'])
 
 -- Replace all placeholder probabilities with actual values from the Markov Chain
 insertProbs :: MarkovChain -> Equation -> Equation
-insertProbs m (t :=: ts) = (t :=: [replaceProbForTerm m t | t <- ts])
+insertProbs m (t :=: ts) = (t :=: [replaceProbForTerm m t' | t' <- ts])
 
 -- Probability of arriving at a certain state
 dstProbability :: MarkovChain -> String -> String -> Fraction
